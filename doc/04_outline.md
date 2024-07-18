@@ -313,3 +313,657 @@ Key features of the list browser:
 The list browser, in conjunction with the memory browser, provides a comprehensive view of the memory space, enabling efficient navigation and detailed analysis of individual objects and their relationships.
 
 # Prompt: Write section 6.
+
+
+## 6. Advanced Usage
+
+This section covers advanced usage scenarios for the `cl-linux-debug` library, enabling you to perform more complex tasks like injecting custom code into a running process and defining your own data structures for analyzing specific memory layouts.
+
+### 6.1 Code Injection
+
+Code injection allows you to execute custom code within the context of a debugged process. This can be useful for tasks such as:
+
+* **Modifying process behavior:**  Alter the execution flow of a process by injecting code that performs specific actions.
+* **Calling internal functions:**  Invoke functions within the process's address space that are not exposed through its normal interface.
+* **Inspecting data:**  Inject code to read and analyze memory regions or data structures that are difficult to access directly.
+
+#### 6.1.1 Allocating Injection Areas
+
+Before injecting code, you need to allocate a memory region within the process's address space. This can be done using the `alloc-injection-area` function:
+
+```lisp
+(def-debug-task inject-my-code (thread)
+  ;; Allocate a writeable region for our code
+  (multiple-value-bind (code-addr code-size)
+      (alloc-injection-area thread nil)
+    ;; Write our code to the allocated region
+    (write-process-data (process-of thread) code-addr code-bytes)
+    ;; Execute our injected code
+    (%exec-injected-code thread code-addr)))
+```
+
+#### 6.1.2 Executing Injected Code
+
+Once the code is written to the allocated memory region, you can execute it using the `%exec-injected-code` function:
+
+```lisp
+(def-debug-task %exec-injected-code (thread address)
+  ;; Set the instruction pointer to the start of our code
+  (%set-registers thread :eip address)
+  ;; Resume the thread
+  (%resume-thread thread)
+  ;; Wait for the thread to hit a breakpoint or signal
+  (wait-for-state thread :not-type 'debug-thread-state-running))
+```
+
+#### 6.1.3 Injecting Syscalls
+
+The `inject-syscall` function provides a convenient way to execute system calls within the debugged process:
+
+```lisp
+;; Get the process ID
+(let ((pid (inject-syscall thread 20))) 
+  (format t "Process ID: ~A~%" pid))
+```
+
+#### 6.1.4 Considerations
+
+* Ensure the injected code is compatible with the process's architecture and runtime environment.
+* Be cautious when injecting code, as it can have unintended consequences and potentially crash the process.
+* Handle errors and exceptions gracefully, as the injected code may encounter unexpected situations.
+
+### 6.2 Custom Data Definitions
+
+You can define custom data structures using XML to analyze specific memory layouts that are not covered by the built-in data definitions.
+
+#### 6.2.1 Defining Types
+
+Use the `<data-definition>` tag to define a set of related data types within a namespace. Define individual types using tags like `<struct-type>`, `<class-type>`, `<enum-type>`, and `<global-object>`.
+
+```xml
+<data-definition namespace='my-game'>
+  <struct-type type-name='Player'>
+    <int32_t name='health'/>
+    <int32_t name='score'/>
+    <pointer name='inventory' type-name='Inventory'/>
+  </struct-type>
+
+  <struct-type type-name='Inventory'>
+    <static-array name='items' count='10' type-name='Item'/>
+  </struct-type>
+
+  <struct-type type-name='Item'>
+    <int32_t name='id'/>
+    <int32_t name='quantity'/>
+  </struct-type>
+
+  <global-object name='player1' type-name='Player'/>
+</data-definition>
+```
+
+#### 6.2.2 Using Custom Types
+
+Load the XML data definition using `load-data-definition` and register it with the type context:
+
+```lisp
+(load-data-definition "my-game.xml")
+(register-data-definition *type-context* "my-game.xml")
+
+;; Access the global object 'player1'
+(let ((player (get-memory-global *memory* $my-game:player1)))
+  (format t "Player health: ~A~%" $player.health))
+```
+
+#### 6.2.3 Considerations
+
+* Choose meaningful names for your types and namespaces.
+* Ensure your data definitions accurately reflect the memory layout of the process you are analyzing.
+* Use helper functions and macros like `@`, `$`, and `with-bytes-for-ref` to access and manipulate memory data efficiently.
+
+By mastering these advanced techniques, you can unlock the full potential of `cl-linux-debug` and delve deeper into the inner workings of running processes.
+
+
+# Prompt: Write section 8.
+
+## 8. API Reference
+
+This section provides a comprehensive list of functions, macros, and classes available in the `cl-linux-debug` and `cl-linux-debug.gui` libraries, along with their descriptions and usage examples.
+
+### 8.1 Core Library (`cl-linux-debug`)
+
+#### 8.1.1 Package: `cl-linux-debug`
+
+* **`*debugged-processes*`:**
+
+   * **Description:** A global list containing all currently debugged processes.
+   * **Type:** `list`
+   * **Example:** `(first *debugged-processes*)` - Get the first debugged process.
+
+* **`start-debug (process-id)`:**
+
+   * **Description:** Starts debugging a process with the specified PID.
+   * **Arguments:**
+      * `process-id`: The process ID (PID) of the process to debug.
+   * **Returns:** A new `debug-process` instance representing the debugged process.
+   * **Example:** `(start-debug 12345)` - Start debugging process with PID 12345.
+
+* **`stop-debug (process)`:**
+
+   * **Description:** Stops debugging the specified process.
+   * **Arguments:**
+      * `process`: The `debug-process` instance to stop debugging.
+   * **Returns:** `NIL`.
+   * **Example:** `(stop-debug *proc*)` - Stop debugging the process stored in `*proc*`.
+
+* **`resume-all-threads (process)`:**
+
+   * **Description:** Resumes all threads of the specified process.
+   * **Arguments:**
+      * `process`: The `debug-process` instance.
+   * **Returns:** `NIL`.
+   * **Example:** `(resume-all-threads *proc*)` - Resume all threads of the process stored in `*proc*`.
+
+* **`stop-all-threads (process)`:**
+
+   * **Description:** Suspends all threads of the specified process.
+   * **Arguments:**
+      * `process`: The `debug-process` instance.
+   * **Returns:** `NIL`.
+   * **Example:** `(stop-all-threads *proc*)` - Suspend all threads of the process stored in `*proc*`.
+
+* **`process-memory-maps (process)`:**
+
+   * **Description:** Retrieves the memory maps of the specified process.
+   * **Arguments:**
+      * `process`: The `debug-process` instance or its process ID.
+   * **Returns:** A list of `memory-mapping` structures describing the memory regions of the process.
+   * **Example:** `(process-memory-maps *proc*)` - Get memory maps of the process stored in `*proc*`.
+
+* **`read-process-data (process address vector &key start end)`:**
+
+   * **Description:** Reads data from the memory of the specified process.
+   * **Arguments:**
+      * `process`: The `debug-process` instance.
+      * `address`: The memory address to read from.
+      * `vector`: A byte vector to store the read data.
+      * `start`: Optional starting index in the vector.
+      * `end`: Optional ending index in the vector.
+   * **Returns:** The byte vector containing the read data.
+   * **Example:** `(read-process-data *proc* #x1000000 *buffer*)` - Read data from address #x1000000 into `*buffer*`.
+
+* **`write-process-data (process address vector &key start end)`:**
+
+   * **Description:** Writes data to the memory of the specified process.
+   * **Arguments:**
+      * `process`: The `debug-process` instance.
+      * `address`: The memory address to write to.
+      * `vector`: A byte vector containing the data to write.
+      * `start`: Optional starting index in the vector.
+      * `end`: Optional ending index in the vector.
+   * **Returns:** `NIL`.
+   * **Example:** `(write-process-data *proc* #x1000000 *buffer*)` - Write data from `*buffer*` to address #x1000000.
+
+* **`name-of (obj)`:**
+
+   * **Description:** Retrieves the name of a named object, like a symbol or a type definition.
+   * **Arguments:**
+      * `obj`: The object to retrieve the name from.
+   * **Returns:** The name of the object as a keyword or string.
+   * **Example:** `(name-of *symbol*)` - Get the name of the symbol stored in `*symbol*`.
+
+* **`task-finished? (task)`:**
+
+   * **Description:** Checks if a debug task has finished execution.
+   * **Arguments:**
+      * `task`: The `debug-task` instance to check.
+   * **Returns:** `T` if the task has finished, otherwise `NIL`.
+   * **Example:** `(task-finished? *task*)` - Check if the task stored in `*task*` has finished.
+
+* **`return-values-of (task)`:**
+
+   * **Description:** Retrieves the return values of a finished debug task.
+   * **Arguments:**
+      * `task`: The finished `debug-task` instance.
+   * **Returns:** A list of the return values.
+   * **Example:** `(return-values-of *task*)` - Get the return values of the task stored in `*task*`.
+
+* **`signalled-condition-of (task)`:**
+
+   * **Description:** Retrieves the condition that caused a debug task to abort.
+   * **Arguments:**
+      * `task`: The aborted `debug-task` instance.
+   * **Returns:** The condition object, or `NIL` if the task finished successfully.
+   * **Example:** `(signalled-condition-of *task*)` - Get the condition that caused the task stored in `*task*` to abort.
+
+* **`ignored-signals-of (process)`:**
+
+   * **Description:** Retrieves the list of signals that are ignored by the debugger for the specified process.
+   * **Arguments:**
+      * `process`: The `debug-process` instance.
+   * **Returns:** A list of signal IDs.
+   * **Example:** `(ignored-signals-of *proc*)` - Get the list of ignored signals for the process stored in `*proc*`.
+
+* **`exit-task (&rest retvals)`:**
+
+   * **Description:** Signals successful completion of the current debug task and returns the specified values. This macro is only valid inside `def-debug-task`.
+   * **Arguments:**
+      * `retvals`: The values to return from the task.
+   * **Returns:** Does not return directly, but signals task completion to the scheduler.
+   * **Example:** `(exit-task 1 2 3)` - Exit the current task and return values 1, 2, and 3.
+
+* **`abort-task (condition &rest args)`:**
+
+   * **Description:** Signals an error condition in the current debug task. This macro is only valid inside `def-debug-task`.
+   * **Arguments:**
+      * `condition`: Either a condition object, a format string for `simple-error`, or a condition type symbol.
+      * `args`: Optional arguments for the format string or condition type.
+   * **Returns:** Does not return directly, but signals task abort to the scheduler.
+   * **Example:**
+      * `(abort-task "Error: ~A" msg)` - Abort with a `simple-error` using the format string and `msg`.
+      * `(abort-task 'type-error :datum data :expected-type 'integer)` - Abort with a `type-error`.
+
+* **`yield-task ()`:**
+
+   * **Description:** Yields control back to the task scheduler, allowing other tasks to run. This macro is only valid inside `def-debug-task`.
+   * **Returns:** Does not return directly, but signals task yield to the scheduler.
+   * **Example:** `(yield-task)` - Yield control back to the scheduler.
+
+* **`with-exit-unwind (form &body unwinds)`:**
+
+   * **Description:** Executes `form` and ensures that the `unwinds` code is executed before the task exits, regardless of whether it exits normally or due to an abort. This macro is only valid inside `def-debug-task`.
+   * **Arguments:**
+      * `form`: The code to execute.
+      * `unwinds`: The code to execute before the task exits.
+   * **Returns:** The result of `form`.
+   * **Example:**
+     ```lisp
+     (with-exit-unwind
+         (progn
+           (do-something)
+           (do-something-else))
+       (cleanup-resources))
+     ```
+
+* **`make-debug-r/w-lock (&key name)`:**
+
+   * **Description:** Creates a new debug read/write lock.
+   * **Arguments:**
+      * `name`: Optional name for the lock.
+   * **Returns:** A new `debug-task-r/w-lock` instance.
+   * **Example:** `(make-debug-r/w-lock :name "My Lock")` - Create a lock named "My Lock".
+
+* **`with-r/w-lock-held ((lock mode) &body code)`:**
+
+   * **Description:** Acquires the specified lock in the given mode, executes the code, and releases the lock afterwards. This macro is only valid inside `def-debug-task`.
+   * **Arguments:**
+      * `lock`: The `debug-task-r/w-lock` instance to acquire.
+      * `mode`: Either `:read` or `:write`.
+      * `code`: The code to execute while holding the lock.
+   * **Returns:** The result of the last expression in `code`.
+   * **Example:**
+     ```lisp
+     (with-r/w-lock-held (lock :write)
+       (modify-shared-resource))
+     ```
+
+* **`def-debug-task (name lambda-args &body code)`:**
+
+   * **Description:** Defines a new debug task function that can be executed by the task scheduler.
+   * **Arguments:**
+      * `name`: The name of the task function.
+      * `lambda-args`: The arguments list for the task function.
+      * `code`: The body of the task function.
+   * **Returns:** `NIL`.
+   * **Example:**
+     ```lisp
+     (def-debug-task my-task (arg1 arg2)
+       (do-something-with arg1 arg2)
+       (exit-task result))
+     ```
+
+* **`call-debug-task (command &rest args)`:**
+
+   * **Description:** Creates a new debug task, schedules it for execution, waits for its completion, and returns its results.
+   * **Arguments:**
+      * `command`: The function to execute in the task.
+      * `args`: The arguments to pass to the function.
+   * **Returns:** The return values of the function executed in the task.
+   * **Example:** `(call-debug-task #'my-task 1 2)` - Execute `my-task` with arguments 1 and 2.
+
+#### 8.1.2 Package: `cl-linux-debug.code-info`
+
+* **`uint8`**, **`uint16`**, **`uint32`**, **`uint64`**:
+
+   * **Description:** Unsigned integer types of 8, 16, 32, and 64 bits.
+
+* **`int8`**, **`int16`**, **`int32`**, **`int64`**:
+
+   * **Description:** Signed integer types of 8, 16, 32, and 64 bits.
+
+* **`machine-word`**, **`machine-uword`**:
+
+   * **Description:** Signed and unsigned integer types of the machine word size (32-bit on x86, 64-bit on x86-64).
+
+* **`uint8-array`**:
+
+   * **Description:** A specialized type for simple arrays of `uint8`.
+
+* **`index-fixnum`**:
+
+   * **Description:** A specialized type for integers that fit within the fixnum range, optionally divided by a divisor and with a bias.
+
+* **`address-int`**:
+
+   * **Description:** An integer type for representing memory addresses (32-bit unsigned on x86, 64-bit signed on x86-64).
+
+* **`+min-address+`**, **`+max-address+`**:
+
+   * **Description:** The minimum and maximum values of `address-int`.
+
+* **`offset`**, **`address`**:
+
+   * **Description:** Specialized types for representing memory offsets and addresses, allowing both integer and fractional values.
+
+* **`format-hex-offset (offset &key force-sign? prefix)`:**
+
+   * **Description:** Formats an offset or address as a hexadecimal string.
+
+* **`parse-hex-offset (offset)`:**
+
+   * **Description:** Parses a hexadecimal string representation of an offset or address.
+
+* **`signed (value &optional bits)`**:
+
+   * **Description:** Converts an unsigned integer to a signed integer with the specified bit width.
+
+* **`unsigned (value &optional bits)`**:
+
+   * **Description:** Converts a signed integer to an unsigned integer with the specified bit width.
+
+* **`start-address-of (object)`**:
+
+   * **Description:** Retrieves the starting memory address of an object.
+
+* **`length-of (object)`**:
+
+   * **Description:** Retrieves the length in bytes of an object.
+
+* **`start-offset-of (object)`**:
+
+   * **Description:** Retrieves the starting offset within a data buffer of an object.
+
+* **`data-bytes-of (object)`**:
+
+   * **Description:** Retrieves the data bytes of an object, if it is a `data-chunk`.
+
+* **`image-of (object)`**:
+
+   * **Description:** Retrieves the image that an object belongs to, if it is a section or a region.
+
+* **`file-offset-of (object)`**:
+
+   * **Description:** Retrieves the file offset of an object, if it is a section.
+
+* **`section-name-of (object)`**:
+
+   * **Description:** Retrieves the name of a section, if it is an `image-section` or `loaded-section`.
+
+* **`loaded? (object)`**:
+
+   * **Description:** Checks if an object is loaded in memory, if it is a section.
+
+* **`executable? (object)`**:
+
+   * **Description:** Checks if an object is executable, if it is a section.
+
+* **`writable? (object)`**:
+
+   * **Description:** Checks if an object is writable, if it is a section.
+
+* **`is-64bit? (object)`**:
+
+   * **Description:** Checks if an object is 64-bit, if it is an executable image.
+
+* **`find-section-by-address (executable address)`**:
+
+   * **Description:** Finds the section containing the specified address in an executable image.
+
+* **`find-section-by-name (executable name)`**:
+
+   * **Description:** Finds the section with the specified name in an executable image.
+
+* **`entry-address-of (object)`**:
+
+   * **Description:** Retrieves the entry point address of an executable image.
+
+* **`path-of (object)`**:
+
+   * **Description:** Retrieves the file path of an executable image.
+
+* **`shared-lib? (object)`**:
+
+   * **Description:** Checks if an executable image is a shared library.
+
+* **`relocated? (object)`**:
+
+   * **Description:** Checks if an object has been relocated in memory, if it is a `loaded-object`.
+
+* **`image-section-of (object)`**:
+
+   * **Description:** Retrieves the original `image-section` of a `loaded-section`.
+
+* **`mapping-of (object)`**:
+
+   * **Description:** Retrieves the memory mapping associated with an object.
+
+* **`loaded-image-of (object)`**:
+
+   * **Description:** Retrieves the `loaded-image` that a `loaded-section` belongs to.
+
+* **`relocation-offset-of (object)`**:
+
+   * **Description:** Retrieves the relocation offset of a `loaded-object`.
+
+* **`unwind-info-of (object)`**:
+
+   * **Description:** Retrieves the DWARF unwind information for a function, if it is an `executable-region-function`.
+
+* **`origin-of (object)`**:
+
+   * **Description:** Retrieves the original non-relocated object from a `loaded-object`.
+
+* **`executable-of (object)`**:
+
+   * **Description:** Retrieves the `loaded-executable` that an object belongs to.
+
+* **`main-image-of (object)`**:
+
+   * **Description:** Retrieves the main image of a `loaded-executable`.
+
+* **`all-images-of (object)`**:
+
+   * **Description:** Retrieves all images (including shared libraries) of a `loaded-executable`.
+
+* **`sections-of (object)`**:
+
+   * **Description:** Retrieves the sections of an executable image or a `section-set`.
+
+* **`find-region-by-address (executable addr &key next?)`**:
+
+   * **Description:** Finds the region containing the specified address in an executable image.
+
+* **`find-regions-by-name (executable name)`**:
+
+   * **Description:** Finds all regions with the specified name in an executable image.
+
+* **`symbol-name-of (object)`**:
+
+   * **Description:** Retrieves the symbol name associated with an object, if it is an `executable-region`.
+
+* **`md5-hash-of (object)`**:
+
+   * **Description:** Retrieves the MD5 hash of an executable image or a `loaded-object`.
+
+* **`binary-timestamp-of (object)`**:
+
+   * **Description:** Retrieves the binary timestamp of an executable image or a `loaded-object`.
+
+* **`make-chunk-table ()`**:
+
+   * **Description:** Creates a new chunk table, which is a binary tree for efficient lookup of address ranges.
+
+* **`lookup-chunk (table address)`**:
+
+   * **Description:** Finds the chunk containing the specified address in a chunk table.
+
+* **`index-chunks (chunks &key is-64bit?)`**:
+
+   * **Description:** Creates a binary search index for efficient lookup of chunks.
+
+* **`lookup-indexed-chunk (index address)`**:
+
+   * **Description:** Looks up a chunk by address in a binary search index.
+
+* **`make-binsearch-uint32-vec (&optional size &rest flags)`**:
+
+   * **Description:** Creates a new adjustable vector of `uint32` elements suitable for binary search.
+
+* **`with-simple-vector-fill ((sv-var fill-vector elt-type) &body code)`**:
+
+   * **Description:** Provides optimized mass insertion of values into a fill-pointer vector.
+
+* **`with-vector-array ((sv-var vector elt-type &key size) &body code)`**:
+
+   * **Description:** Exposes the underlying simple array of an adjustable vector for efficient access.
+
+* **`with-unsafe-int-read ((reader-name vector) &body code)`**:
+
+   * **Description:** Defines a macro for efficient, unchecked reading of integer values from a byte vector.
+
+* **`with-binsearch-in-array ((name vector elt-type comparator &key array-var right-edge?) &body code)`**:
+
+   * **Description:** Defines a function for efficient binary search within a vector.
+
+* **`binsearch-generic (vector key &key cmp)`**:
+
+   * **Description:** Performs a generic binary search on a vector using a custom comparator.
+
+* **`binsearch-uint32-< (vector key)`**:
+
+   * **Description:** Performs a binary search on a vector of `uint32` elements using the `<` comparator.
+
+* **`binsearch-uint32-<= (vector key)`**:
+
+   * **Description:** Performs a binary search on a vector of `uint32` elements using the `<=` comparator.
+
+* **`binsearch-addr64-< (vector key)`** (x86-64 only):
+
+   * **Description:** Performs a binary search on a vector of `address-int` elements using the `<` comparator.
+
+* **`binsearch-addr64-<= (vector key)`** (x86-64 only):
+
+   * **Description:** Performs a binary search on a vector of `address-int` elements using the `<=` comparator.
+
+* **`make-byte-vector (size)`**:
+
+   * **Description:** Creates a new byte vector of the specified size.
+
+* **`disassemble-function (executable fname)`**:
+
+   * **Description:** Disassembles the function with the given name in the specified executable.
+
+* **`region-unwind-table (region)`**:
+
+   * **Description:** Creates a stack unwind table for a function region from its DWARF unwind information.
+
+* **`unwind-state-cfa (state)`**:
+
+   * **Description:** Accesses the CFA (Canonical Frame Address) value of an unwind state.
+
+### 8.2 GUI Library (`cl-linux-debug.gui`)
+
+#### 8.2.1 Package: `cl-linux-debug.gui`
+
+* **`browse-object-in-new-window (memory ref &key title expand-to-addr)`**:
+
+   * **Description:** Creates a new window displaying a memory object browser for the specified memory reference.
+   * **Arguments:**
+      * `memory`: A `memory-mirror` or `object-memory-mirror` instance.
+      * `ref`: The memory reference to browse.
+      * `title`: Optional title for the window.
+      * `expand-to-addr`: Optional address to expand the tree to.
+   * **Returns:** `NIL`.
+   * **Example:** `(browse-object-in-new-window *memory* *ref* :title "My Object")`
+
+* **`enable-gui-debugger-hook ()`**:
+
+   * **Description:** Enables the GUI debugger hook, which intercepts uncaught conditions and displays a dialog for selecting a restart.
+
+### 8.3 Data Definition Language
+
+The data definition language is based on XML and is used to define data structures used for analyzing memory. These definitions are loaded into the system and used by the memory analysis components.
+
+#### 8.3.1 Basic Structure
+
+```xml
+<data-definition namespace='my-namespace'>
+  <struct-type type-name='my-struct'>
+    <int32_t name='field1'/>
+    <pointer name='field2' type-name='other-struct'/>
+  </struct-type>
+
+  <global-object name='my-global' type-name='my-struct'/>
+</data-definition>
+```
+
+#### 8.3.2 Common Elements
+
+* `<data-definition>`: Top-level element for grouping related definitions.
+  * `namespace`: Optional namespace for the defined types and globals.
+* `<struct-type>`: Defines a structure type.
+  * `type-name`: The name of the type.
+  * `key-field`: Optional name of the field that uniquely identifies objects of this type.
+* `<class-type>`: Defines a class type.
+  * `type-name`: The name of the type.
+  * `original-name`: The original, possibly mangled name of the class.
+  * `linux-mangling`: The mangled name of the class on Linux.
+  * `windows-mangling`: The mangled name of the class on Windows.
+* `<bitfield-type>`: Defines a bitfield type.
+  * `type-name`: The name of the type.
+  * `base-type`: The underlying integer type of the bitfield.
+* `<enum-type>`: Defines an enumeration type.
+  * `type-name`: The name of the type.
+  * `base-type`: The underlying integer type of the enumeration.
+* `<global-object>`: Defines a global variable.
+  * `name`: The name of the variable.
+  * `type-name`: The type of the variable.
+* `<symbol-table>`: Defines a custom symbol table.
+  * `name`: The name of the symbol table.
+  * `os-type`: The operating system the symbol table is for (e.g., `linux`, `windows`).
+
+#### 8.3.3 Field Types
+
+* `int8_t`, `uint8_t`, `int16_t`, `uint16_t`, `int32_t`, `uint32_t`, `int64_t`, `uint64_t`: Signed and unsigned integer types.
+* `long`, `ulong`: Signed and unsigned long integer types (platform-dependent size).
+* `intptr_t`, `uintptr_t`: Signed and unsigned integer types large enough to hold a pointer.
+* `bool`: Boolean type (usually represented as a byte).
+* `padding`: Placeholder for unused memory space.
+* `pointer`: Pointer to another object.
+  * `type-name`: The type of the object pointed to.
+* `pointer/array`: Pointer to an array of objects.
+* `static-string`: Null-terminated string embedded in the object.
+* `ptr-string`: Pointer to a null-terminated string.
+* `stl-string`: STL string object.
+* `static-array`: Array with elements stored inline in the object.
+  * `count`: Number of elements in the array.
+* `stl-vector`, `stl-bit-vector`, `stl-deque`, `stl-set`, `stl-fstream`: STL container types.
+* `flag-bit`: Single bit flag.
+* `enum`: Enumeration value.
+  * `type-name`: The type of the enumeration.
+* `compound`: Structure or union type.
+  * `type-name`: The type of the compound, if it is a proxy for a global type.
+  * `is-union`:  Set to "true" if the compound is a union.
+
+## Conclusion
+
+This API reference serves as a guide to the extensive functionality offered by the `cl-linux-debug` library.  By combining these components, developers can build powerful tools for debugging and analyzing Linux processes.
