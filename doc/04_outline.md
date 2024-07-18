@@ -89,3 +89,227 @@ cl-linux-debug is a powerful tool designed for investigating the memory of a pro
 
 ## Contributing
 Contributions to the documentation are welcome. Please submit pull requests with any improvements or additions.
+
+
+
+
+# Prompt: Write section 4.
+
+
+## 4. Core Library
+
+This section documents the core functionality of cl-linux-debug, enabling analysis of executable images, control and inspection of running processes, and interpretation of their memory contents.
+
+### 4.1 Executable Images
+
+cl-linux-debug supports loading both ELF and PE executable formats, providing a unified interface for analysing their structure.
+
+#### 4.1.1 Loading and Exploring Images
+
+To load an executable image, use the function `get-executable-image`:
+
+```lisp
+(let ((image (get-executable-image "/path/to/executable")))
+  ;; Access image data, e.g.:
+  (print (path-of image))
+  (print (md5-hash-of image))
+  (print (entry-address-of image))
+  (print (sections-of image)))
+```
+
+This function returns a `loaded-executable` object, which aggregates data from all loaded images (the main executable and its shared libraries). You can access the main image via `main-image-of` and all images via `all-images-of`. Each individual image is represented by a `loaded-image` object.
+
+#### 4.1.2 Sections
+
+Executable images consist of sections such as `.text` (code), `.data` (initialized data), `.bss` (uninitialized data), and others. These are accessible via the `sections-of` function:
+
+```lisp
+(dolist (section (sections-of image))
+  ;; Access section data, e.g.:
+  (print (section-name-of section))
+  (print (start-address-of section))
+  (print (length-of section))
+  (print (data-bytes-of section)))
+```
+
+Each section is represented by a `loaded-section` object, providing access to its name, address range, and raw data.
+
+#### 4.1.3 Symbols and Regions
+
+Symbols represent named entities within the executable, like variables, functions, and data structures.  cl-linux-debug identifies regions of code associated with these symbols. To find all regions with a given name:
+
+```lisp
+(let ((regions (find-regions-by-name executable "my_function")))
+  ;; Access region data, e.g.:
+  (dolist (region regions)
+    (print (start-address-of region))
+    (print (length-of region))
+    (print (symbol-name-of region))))
+```
+
+`find-region-by-address` locates the region containing a specific address. Regions are categorized as objects, functions, plt entries, and got entries.
+
+### 4.2 Debugger
+
+The debugger component provides a low-level interface to control and inspect a running process using the Linux `ptrace` system call.  All operations are managed asynchronously via a task scheduler.
+
+#### 4.2.1 Task Scheduler
+
+The task scheduler allows offloading debugger operations to a background thread, ensuring the main thread remains responsive for GUI interactions.  Define debug tasks using `def-debug-task`:
+
+```lisp
+(def-debug-task my-debug-task (process &key arg1 arg2)
+  ;; Perform debugger operations here, e.g. access memory or registers
+  (let ((value (get-memory-integer process address 4)))
+    (print value)))
+```
+
+To execute a debug task, use `call-debug-task`:
+
+```lisp
+(call-debug-task 'my-debug-task process :arg1 10 :arg2 20)
+```
+
+Tasks can wait for events, yield to other tasks, or abort with a condition. The functions `exit-task`, `abort-task`, and `yield-task` control task execution flow. Read-write locks are provided via `make-debug-r/w-lock` and `with-r/w-lock-held` for synchronizing access to shared data.
+
+#### 4.2.2 Ptrace Interface
+
+The `ptrace` system call is wrapped in a set of functions, including:
+
+* `ptrace-attach`: Attach to a running process.
+* `ptrace-detach`: Detach from a process.
+* `ptrace-continue`: Resume process execution.
+* `ptrace-get-registers`: Read process registers.
+* `ptrace-set-registers`: Write process registers.
+* `ptrace-copy-bytes`: Read or write process memory.
+
+#### 4.2.3 Process Management
+
+The `debug-process` class encapsulates a debugged process, managing threads, signal handling, and event dispatch. Functions like `start-debug` and `stop-debug` control the debug session.
+
+#### 4.2.4 Thread Handling
+
+Each thread within a debugged process is represented by a `debug-thread` object. You can suspend, resume, and control threads individually. The `with-threads-suspended` and `with-thread-suspended` macros simplify thread synchronization.
+
+### 4.3 Data Structures
+
+cl-linux-debug utilizes XML data definitions to describe complex data structures found in process memory. This provides a flexible and extensible system for parsing and interpreting memory contents.
+
+#### 4.3.1 Types
+
+The library defines a hierarchy of type classes, ranging from primitive types (integers, floats, booleans) to compound types (structures, unions) and containers (arrays, pointers). These are defined in the `data-info/types.lisp` file.
+
+#### 4.3.2 Type Layout
+
+The `type-core` module implements core functionality for laying out data structures in memory, including:
+
+* `compute-effective-size`: Calculates the size of a type in memory, considering alignment constraints.
+* `compute-effective-alignment`: Determines the alignment requirement of a type.
+* `layout-type`: Lays out a type in memory, determining field offsets and handling type proxies.
+
+#### 4.3.3 Type Proxies
+
+Type proxies are used to represent references to global type definitions within other types. They allow efficient representation of complex structures without duplicating information.
+
+### 4.4 Memory Analysis
+
+The library provides powerful tools for analysing the memory of a debugged process.
+
+#### 4.4.1 Memory Mirrors
+
+A memory mirror provides a live view of the process's address space. It is created using `make-memory-mirror`:
+
+```lisp
+(let ((memory (make-memory-mirror process)))
+  ;; Access memory data, e.g.:
+  (get-memory-integer memory address 4))
+```
+
+The memory mirror automatically synchronizes with the process, allowing you to track changes in memory contents.
+
+#### 4.4.2 Heap Analysis
+
+The `malloc` module provides functions for analyzing heap structures, identifying allocated chunks, and tracing object references. It can detect and analyse heap structures managed by both glibc and Wine.
+
+#### 4.4.3 Object Analysis
+
+The `object-memory-mirror` class extends the memory mirror with functionality for analysing objects. It can identify objects based on their type information and layout. Functions like `get-address-object-info` provide detailed information about memory regions, including whether they belong to heap chunks, code sections, or global objects.
+
+### 4.5 Search Functionality
+
+The library offers various functions for searching through process memory:
+
+* `find-stl-strings`:  Find STL strings containing a given substring.
+* `find-memory-strings`: Find null-terminated strings in any memory region.
+* `find-heap-words`: Find specific integer values within heap objects.
+* `find-stl-vectors`:  Find STL vectors within a specified size range.
+* `find-obj-by-vtable`:  Find objects based on their vtable address.
+* `find-changes`:  Track changes in memory contents.
+
+These functions help identify interesting data structures and understand the internal state of the debugged process.
+
+This section provides a comprehensive overview of the cl-linux-debug core library's capabilities. The following sections will delve deeper into specific aspects and advanced usage scenarios.
+
+
+# Prompt: Write section 5.
+
+
+## 5. GUI Library
+
+The GUI library provides visual tools for exploring and analyzing the memory of a debugged process. It leverages the core library's functionalities and presents them in a user-friendly graphical interface.
+
+### 5.1 Tree Model (gui/tree-model.lisp)
+
+The foundation of the GUI is a flexible object-oriented tree model, implemented in `gui/tree-model.lisp`. This model allows representing hierarchical data structures, like the organization of memory objects, in a tree view. 
+
+Key features of the tree model include:
+
+* **Object-oriented representation:** Each node in the tree is an instance of a dedicated class, allowing for customized behavior and data storage.
+* **Lazy loading:**  Nodes can be expanded on demand, improving performance when dealing with large data sets. This is especially beneficial when analyzing complex memory structures.
+* **Dynamic updates:**  The tree model supports dynamic updates, enabling the view to reflect changes in the underlying data, such as modifications in the debugged process's memory.
+* **Callbacks and events:**  Callbacks and events are supported, allowing for interactions with the tree view, such as selecting nodes, expanding/collapsing branches, and handling right-click menus.
+
+The tree model is used extensively in the memory browser and list browser, providing a consistent and efficient way to display and interact with complex data.
+
+
+### 5.2 Debug Hook (gui/debug-hook.lisp)
+
+The debug hook provides a GUI layer for handling debugger events and user interactions. 
+
+* **Restart Selection Dialog:**  When an unhandled condition occurs in the debugged process, the debug hook intercepts it and presents a dialog to the user. This dialog displays the condition details, available restarts, and allows the user to choose a restart or enter debug mode. 
+* **Query Dialog:**  Provides a simple dialog for prompting the user for input, such as when setting a new value for a memory object. This allows for interactive debugging and manipulation of the process state.
+* **Debug Dialog Stream:**  Implements specialized streams that communicate with the user through dialog boxes. This allows for debugging scripts and interactive evaluation of expressions within the debugged process, with user input and output handled through dialog prompts.
+* **Offloaded Computation and Progress Dialog:**  Provides functions for executing long-running computations in a separate thread, while displaying a progress dialog to the user. This prevents the GUI from becoming unresponsive during lengthy operations.
+
+The debug hook ensures a user-friendly and interactive experience by providing visual feedback and prompting the user for actions when needed.
+
+
+### 5.3 Memory Browser (gui/memory-browser.lisp)
+
+The memory browser provides a graphical visualization of memory objects and their relationships. It leverages the tree model to display memory objects hierarchically, allowing the user to navigate and inspect individual fields and values.
+
+Key features of the memory browser:
+
+* **Hierarchical view:**  Displays memory objects and their fields in a tree structure, allowing for easy navigation and understanding of the object's layout.
+* **Data representation:**  Provides columns for displaying the address, name, type, value, and additional information about each memory object. Color coding is used to indicate changes in memory values and the status of objects (e.g., verified, unchecked).
+* **Navigation and exploration:**  Allows the user to expand and collapse branches in the tree to explore different levels of the memory structure. Double-clicking a pointer object opens a new browser window for the target object.
+* **Contextual menus:**  Provides context menus for individual nodes, offering actions such as browsing linked objects, copying addresses, and rebuilding subtrees.
+* **Hotkeys:**  Supports hotkeys for refreshing the memory view and annotating objects.
+
+The memory browser allows for efficient exploration and analysis of memory structures, providing insights into the internal state of the debugged process.
+
+
+### 5.4 List Browser (gui/list-browser.lisp)
+
+The list browser complements the memory browser by displaying a list of memory objects. This provides a convenient way to view and filter a large collection of objects, particularly useful when working with arrays or collections.
+
+Key features of the list browser:
+
+* **List view:**  Presents memory objects in a tabular format, with columns for index, value, and additional information.
+* **Filtering:**  Allows the user to filter the list of objects based on their value or properties. This is useful for narrowing down the objects of interest and identifying specific patterns in memory.
+* **Navigation:**  Selecting an object in the list browser updates the associated memory browser, displaying the selected object's structure.
+* **New Window Browsing:**  Allows opening new list browser windows for inspecting sub-collections or linked objects.
+
+The list browser, in conjunction with the memory browser, provides a comprehensive view of the memory space, enabling efficient navigation and detailed analysis of individual objects and their relationships.
+
+# Prompt: Write section 6.
